@@ -1,45 +1,159 @@
-<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
-<title>قالب الوكلاء</title>
-<style>body{font-family:system-ui;max-width:720px;margin:20px auto;padding:0 12px}input,select,textarea,button{width:100%;padding:10px;margin:5px 0;font-size:16px;box-sizing:border-box}.r{display:flex;gap:6px}.r>*{flex:1}pre{white-space:pre-wrap;background:#f4f4f4;padding:12px}small{color:#666}fieldset{margin:10px 0}</style>
-<h2>قالب الوكلاء: أب + أبناء</h2>
-<fieldset><legend>مفاتيح API (محفوظة في المتصفح ده بس)</legend>
-<input id=k_openrouter type=password placeholder="OpenRouter key" oninput=saveKeys()>
-<input id=k_gemini type=password placeholder="Gemini key (AI Studio)" oninput=saveKeys()>
-<small>OpenRouter المجاني (:free): 20 طلب/دقيقة و50 طلب/يوم تقريبًا.</small></fieldset>
-<fieldset><legend>الأب (تعليمات أساسية لكل الأبناء)</legend>
-<textarea id=parent rows=3 oninput=saveParent()></textarea></fieldset>
-<fieldset><legend>الابن (وكيل)</legend>
-<select id=child onchange=pick()></select>
-<input id=name placeholder="اسم الابن (مثال: كاتب سكريبت)">
-<textarea id=role rows=3 placeholder="تعليمات خاصة بالابن (تضاف فوق تعليمات الأب)"></textarea>
-<div class=r><select id=prov onchange=loadModels()><option value=openrouter>OpenRouter</option><option value=gemini>Gemini</option></select><select id=model></select></div>
-<small>المزود والموديل بتوع الابن ده بس. غيّريهم وقت ما تحبي واضغطي احفظ.</small>
-<div class=r><button onclick=newChild()>ابن جديد</button><button onclick=saveChild()>احفظ</button><button onclick=delChild()>امسح</button></div></fieldset>
-<textarea id=msg rows=4 placeholder="طلبك دلوقتي"></textarea>
-<button onclick=ask()>شغّل الابن المختار</button><pre id=out></pre>
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'sha256-ndkRbtpkYbAQjhw+U9GLU0C6+9OsMjfFOvu1TF/v52w='; style-src 'self'; connect-src https://openrouter.ai https://generativelanguage.googleapis.com; base-uri 'none'; form-action 'none'">
+<meta name="referrer" content="no-referrer">
+<title>وكلاء رنفورا</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="lock" class="lock" hidden>
+  <div class="card">
+    <h2>الصفحة مقفولة</h2>
+    <p class="hint">اكتبي كلمة السر لفتح المفاتيح المحفوظة.</p>
+    <input id="unlockPass" type="password" autocomplete="off" placeholder="كلمة السر">
+    <div class="row mt">
+      <button id="unlockBtn" class="pri" type="button">فتح</button>
+      <button id="unlockWipe" class="bad" type="button">نسيت: امسح المفاتيح</button>
+    </div>
+    <p id="unlockMsg" class="status err"></p>
+  </div>
+</div>
+<div class="wrap">
+  <header>
+    <div><h1>وكلاء رنفورا</h1><p class="sub">أب واحد، وأبناء (وكلاء)، وكل ابن له موديله</p></div>
+  </header>
+
+  <section class="card">
+    <div class="step"><span class="num">1</span><h2>المفاتيح</h2></div>
+    <label for="kOr">مفتاح OpenRouter</label>
+    <input id="kOr" type="password" autocomplete="off" placeholder="sk-or-...">
+    <label for="kGm">مفتاح Gemini (AI Studio)</label>
+    <input id="kGm" type="password" autocomplete="off" placeholder="AIza...">
+    <p class="hint">المفاتيح بتفضل في المتصفح بس، وبتتبعت للمزود اللي اخترتيه لوحده. من غير حفظ، بتتمسح لما تقفلي الصفحة.</p>
+    <details>
+      <summary>حفظ المفاتيح بكلمة سر (اختياري)</summary>
+      <label for="pass">كلمة سر (6 حروف على الأقل)</label>
+      <input id="pass" type="password" autocomplete="new-password">
+      <div class="row mt">
+        <button id="saveKeys" type="button">احفظ المفاتيح مشفرة</button>
+      </div>
+      <p class="hint">بتتشفر في المتصفح ده بس. لو نسيتي الكلمة مفيش استرجاع، تمسحي وتحطي المفاتيح تاني.</p>
+    </details>
+    <div class="row mt"><button id="wipeKeys" class="bad" type="button">امسح كل المفاتيح</button></div>
+    <p id="keyMsg" class="status"></p>
+  </section>
+
+  <section class="card">
+    <div class="step"><span class="num">2</span><h2>الأب: التعليمات الأساسية</h2></div>
+    <textarea id="parent" rows="3" aria-label="تعليمات الأب"></textarea>
+    <p class="hint">بتتضاف قبل تعليمات كل ابن.</p>
+  </section>
+
+  <section class="card">
+    <div class="step"><span class="num">3</span><h2>الأبناء (الوكلاء)</h2></div>
+    <div id="agents" class="agents"></div>
+    <label for="aName">اسم الابن</label>
+    <input id="aName" type="text" maxlength="60">
+    <label for="aRole">تعليمات الابن</label>
+    <textarea id="aRole" rows="3"></textarea>
+    <div class="row mt">
+      <div><label for="aProv">المزود</label>
+        <select id="aProv"><option value="openrouter">OpenRouter</option><option value="gemini">Gemini</option></select></div>
+      <div><label for="aModel">الموديل</label><select id="aModel"></select></div>
+    </div>
+    <p class="hint">غيّري المزود أو الموديل وقت ما تحبي، واضغطي حفظ.</p>
+    <div class="row mt">
+      <button id="aNew" type="button">ابن جديد</button>
+      <button id="aSave" class="pri" type="button">حفظ</button>
+      <button id="aDel" class="bad" type="button">مسح</button>
+    </div>
+    <p id="agentMsg" class="status"></p>
+  </section>
+
+  <section class="card">
+    <div class="step"><span class="num">4</span><h2>التشغيل</h2></div>
+    <p id="runWho" class="hint"></p>
+    <textarea id="msg" rows="4" aria-label="الطلب" placeholder="اكتبي طلبك هنا"></textarea>
+    <div class="row mt">
+      <button id="run" class="pri" type="button">شغّل</button>
+      <button id="copy" type="button">انسخ النتيجة</button>
+    </div>
+    <div id="out" class="out" aria-live="polite"></div>
+    <p class="hint">لا تحطي بيانات عملاء حقيقية. الموديلات المجانية ممكن تسجّل الطلبات.</p>
+  </section>
+</div>
 <script>
-const $=i=>document.getElementById(i),L=localStorage;
-let parent=L.parent??'اكتب بالعامية المصرية. كن مختصرًا وصادقًا. لا تخترع أرقامًا أو نتائج.';
-let kids=JSON.parse(L.kids||'null')||[{name:'كاتب سكريبت وكابشن',role:'اكتب سكريبت فيديو بجمل قصيرة بدون علامات ترقيم، ثم كابشن وهاشتاجات.',prov:'openrouter',model:''},{name:'رد على عميل',role:'اكتب مسودة رد مهذب ومختصر على رسالة العميل.',prov:'gemini',model:'gemini-flash-latest'}];
-const cache={};
-function saveParent(){parent=$('parent').value;L.parent=parent}
-function saveKeys(){L.k_openrouter=$('k_openrouter').value;L.k_gemini=$('k_gemini').value}
-function store(){L.kids=JSON.stringify(kids)}
-function rp(sel){$('child').innerHTML=kids.map((p,i)=>`<option value=${i}></option>`).join('');[...$('child').options].forEach((o,i)=>o.textContent=kids[i].name+' ('+kids[i].prov+')');if(sel!=null)$('child').value=sel;pick()}
-function pick(){const p=kids[$('child').value];$('name').value=p?p.name:'';$('role').value=p?p.role:'';if(p){$('prov').value=p.prov;loadModels(p.model)}}
-function newChild(){$('child').selectedIndex=-1;$('name').value='';$('role').value=''}
-function saveChild(){const n=$('name').value.trim();if(!n)return;const c=$('child').value;const o={name:n,role:$('role').value,prov:$('prov').value,model:$('model').value};if(c!==''&&kids[c])kids[c]=o;else kids.push(o);store();rp(c!==''&&kids[c]?+c:kids.length-1)}
-function delChild(){const c=$('child').value;if(c==='')return;kids.splice(c,1);store();rp(0)}
-async function models(p){if(cache[p])return cache[p];let list=[];
-try{if(p=='openrouter'){const j=await (await fetch('https://openrouter.ai/api/v1/models')).json();list=j.data.filter(m=>m.id.endsWith(':free')).map(m=>m.id)}
-else list=['gemini-flash-latest','gemini-flash-lite-latest']}catch(e){}
-return cache[p]=list}
-async function loadModels(want){let list=[...await models($("prov").value)];if(want&&!list.includes(want))list=[want,...list];
-$('model').innerHTML=list.map(m=>`<option>${m}</option>`).join('')||'<option value="">تعذر التحميل</option>';if(want)$('model').value=want}
-async function ask(){const o=$('out');const k=kids[$('child').value];if(!k){o.textContent='اختاري ابن واحفظيه الأول';return}
-o.textContent='...';const p=k.prov,key=$('k_'+p).value,sys=parent+'\n\n'+k.role;
-try{let t;if(p=='openrouter'){const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:k.model,messages:[{role:'system',content:sys},{role:'user',content:$('msg').value}]})});const j=await r.json();t=j.choices?j.choices[0].message.content:JSON.stringify(j,null,1)}
-else{const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${k.model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{parts:[{text:$('msg').value}]}]})});const j=await r.json();t=j.candidates?j.candidates[0].content.parts[0].text:JSON.stringify(j,null,1)}
-o.textContent=t}catch(e){o.textContent=e}}
-$('parent').value=parent;$('k_openrouter').value=L.k_openrouter||'';$('k_gemini').value=L.k_gemini||'';rp(0);
-</script></html>
+"use strict";
+const $=id=>document.getElementById(id),L=localStorage,te=new TextEncoder(),td=new TextDecoder();
+const DEF_PARENT="اكتب بالعامية المصرية. كن مختصرًا وصادقًا. لا تخترع أرقامًا أو نتائج.";
+const DEF_KIDS=[{name:"كاتب سكريبت وكابشن",role:"اكتب سكريبت فيديو بجمل قصيرة بدون علامات ترقيم، ثم كابشن وهاشتاجات.",prov:"openrouter",model:""},{name:"رد على عميل",role:"اكتب مسودة رد مهذب ومختصر على رسالة العميل.",prov:"gemini",model:"gemini-flash-latest"}];
+const MODEL_RE=/^[A-Za-z0-9._\-\/:]{1,120}$/;
+let parent=L.getItem("parent");if(parent===null)parent=DEF_PARENT;
+let kids;try{kids=JSON.parse(L.getItem("kids")||"null")}catch(e){kids=null}
+if(!Array.isArray(kids))kids=DEF_KIDS.map(k=>({...k}));
+let sel=0,cache={},unlocked=true,delArm=false;
+function say(id,t,cls){const e=$(id);e.textContent=t;e.className="status "+(cls||"")}
+function persistKids(){L.setItem("kids",JSON.stringify(kids))}
+/* crypto */
+const b64=u=>btoa(String.fromCharCode(...new Uint8Array(u))),unb=s=>Uint8Array.from(atob(s),c=>c.charCodeAt(0));
+async function dk(pass,salt){const m=await crypto.subtle.importKey("raw",te.encode(pass),"PBKDF2",false,["deriveKey"]);return crypto.subtle.deriveKey({name:"PBKDF2",salt,iterations:250000,hash:"SHA-256"},m,{name:"AES-GCM",length:256},false,["encrypt","decrypt"])}
+async function seal(pass,obj){const salt=crypto.getRandomValues(new Uint8Array(16)),iv=crypto.getRandomValues(new Uint8Array(12));const c=await crypto.subtle.encrypt({name:"AES-GCM",iv},await dk(pass,salt),te.encode(JSON.stringify(obj)));return JSON.stringify({s:b64(salt),i:b64(iv),c:b64(c)})}
+async function open(pass,blob){const o=JSON.parse(blob);const p=await crypto.subtle.decrypt({name:"AES-GCM",iv:unb(o.i)},await dk(pass,unb(o.s)),unb(o.c));return JSON.parse(td.decode(p))}
+/* keys */
+$("saveKeys").onclick=async()=>{const p=$("pass").value;if(p.length<6){say("keyMsg","كلمة السر لازم 6 حروف على الأقل","err");return}
+ if(!$("kOr").value&&!$("kGm").value){say("keyMsg","اكتبي مفتاح الأول","err");return}
+ try{L.setItem("vault",await seal(p,{or:$("kOr").value,gm:$("kGm").value}));$("pass").value="";say("keyMsg","اتحفظت مشفرة في المتصفح ده","ok")}catch(e){say("keyMsg","فشل التشفير","err")}};
+function wipe(){L.removeItem("vault");sessionStorage.clear();$("kOr").value="";$("kGm").value="";$("pass").value="";say("keyMsg","اتمسحت كل المفاتيح","ok")}
+$("wipeKeys").onclick=wipe;
+$("unlockWipe").onclick=()=>{wipe();$("lock").hidden=true};
+$("unlockBtn").onclick=async()=>{try{const k=await open($("unlockPass").value,L.getItem("vault"));$("kOr").value=k.or||"";$("kGm").value=k.gm||"";$("unlockPass").value="";$("lock").hidden=true}catch(e){$("unlockMsg").textContent="كلمة السر غلط"}};
+$("unlockPass").addEventListener("keydown",e=>{if(e.key==="Enter")$("unlockBtn").click()});
+if(L.getItem("vault"))$("lock").hidden=false;
+/* parent */
+$("parent").value=parent;$("parent").oninput=()=>{parent=$("parent").value;L.setItem("parent",parent)};
+/* models */
+async function models(p){if(cache[p])return cache[p];let l=[];
+ try{if(p==="openrouter"){const r=await fetch("https://openrouter.ai/api/v1/models",{credentials:"omit",referrerPolicy:"no-referrer"});const j=await r.json();l=j.data.map(m=>String(m.id)).filter(i=>i.endsWith(":free")&&MODEL_RE.test(i))}
+ else l=["gemini-flash-latest","gemini-flash-lite-latest"]}catch(e){}
+ return cache[p]=l}
+async function fillModels(want){const l=[...await models($("aProv").value)];if(want&&MODEL_RE.test(want)&&!l.includes(want))l.unshift(want);
+ const s=$("aModel");s.replaceChildren();for(const m of l){const o=document.createElement("option");o.value=m;o.textContent=m;s.appendChild(o)}
+ if(!l.length){const o=document.createElement("option");o.value="";o.textContent="تعذر تحميل الموديلات";s.appendChild(o)}
+ if(want&&l.includes(want))s.value=want}
+$("aProv").onchange=()=>fillModels("");
+/* agents */
+function renderAgents(){const box=$("agents");box.replaceChildren();
+ kids.forEach((k,i)=>{const b=document.createElement("button");b.type="button";b.className="agent"+(i===sel?" on":"");
+  const n=document.createElement("span");n.textContent=k.name;const t=document.createElement("span");t.className="tag";t.textContent=k.prov+(k.model?" / "+k.model:"");
+  b.append(n,t);b.onclick=()=>{sel=i;delArm=false;renderAgents();loadAgent()};box.appendChild(b)});
+ $("runWho").textContent=kids[sel]?"الابن المختار: "+kids[sel].name:"اختاري ابن أو اعملي واحد جديد"}
+async function loadAgent(){const k=kids[sel];$("aName").value=k?k.name:"";$("aRole").value=k?k.role:"";$("aProv").value=k?k.prov:"openrouter";await fillModels(k?k.model:"");$("aDel").textContent="مسح";say("agentMsg","")}
+$("aNew").onclick=()=>{sel=-1;renderAgents();$("aName").value="";$("aRole").value="";$("aProv").value="openrouter";fillModels("");$("aName").focus()};
+$("aSave").onclick=()=>{const n=$("aName").value.trim();if(!n){say("agentMsg","اكتبي اسم للابن","err");return}
+ const o={name:n.slice(0,60),role:$("aRole").value,prov:$("aProv").value,model:$("aModel").value};
+ if(sel>=0&&kids[sel])kids[sel]=o;else{kids.push(o);sel=kids.length-1}
+ persistKids();renderAgents();say("agentMsg","اتحفظ","ok")};
+$("aDel").onclick=()=>{if(sel<0||!kids[sel])return;if(!delArm){delArm=true;$("aDel").textContent="اضغطي تاني للتأكيد";return}
+ kids.splice(sel,1);persistKids();delArm=false;sel=kids.length?0:-1;renderAgents();loadAgent()};
+/* run */
+async function callModel(k,sys,user){
+ if(!MODEL_RE.test(k.model||""))throw new Error("اختاري موديل واحفظي الابن الأول");
+ if(k.prov==="openrouter"){const key=$("kOr").value;if(!key)throw new Error("مفتاح OpenRouter ناقص");
+  const r=await fetch("https://openrouter.ai/api/v1/chat/completions",{method:"POST",credentials:"omit",referrerPolicy:"no-referrer",headers:{"Content-Type":"application/json","Authorization":"Bearer "+key},body:JSON.stringify({model:k.model,messages:[{role:"system",content:sys},{role:"user",content:user}]})});
+  const j=await r.json();if(j.choices&&j.choices[0])return String(j.choices[0].message.content);throw new Error((j.error&&j.error.message)||"رد غير متوقع")}
+ const key=$("kGm").value;if(!key)throw new Error("مفتاح Gemini ناقص");
+ const r=await fetch("https://generativelanguage.googleapis.com/v1beta/models/"+encodeURIComponent(k.model)+":generateContent",{method:"POST",credentials:"omit",referrerPolicy:"no-referrer",headers:{"Content-Type":"application/json","x-goog-api-key":key},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{parts:[{text:user}]}]})});
+ const j=await r.json();if(j.candidates&&j.candidates[0])return j.candidates[0].content.parts.map(p=>String(p.text||"")).join("");throw new Error((j.error&&j.error.message)||"رد غير متوقع")}
+$("run").onclick=async()=>{const k=kids[sel],o=$("out");if(!k){o.textContent="اختاري ابن الأول";return}
+ if(!$("msg").value.trim()){o.textContent="اكتبي الطلب الأول";return}
+ $("run").disabled=true;o.textContent="جاري التشغيل...";
+ try{o.textContent=await callModel(k,parent+"\n\n"+k.role,$("msg").value)}catch(e){o.textContent="خطأ: "+(e&&e.message?e.message:"فشل الطلب")}
+ $("run").disabled=false};
+$("copy").onclick=async()=>{try{await navigator.clipboard.writeText($("out").textContent);$("copy").textContent="اتنسخ"}catch(e){$("copy").textContent="ما نفعش النسخ"}setTimeout(()=>$("copy").textContent="انسخ النتيجة",1500)};
+renderAgents();loadAgent();
+</script>
+</body>
+</html>
