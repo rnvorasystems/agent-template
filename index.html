@@ -1,0 +1,45 @@
+<!doctype html><html lang="ar" dir="rtl"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>قالب الوكلاء</title>
+<style>body{font-family:system-ui;max-width:720px;margin:20px auto;padding:0 12px}input,select,textarea,button{width:100%;padding:10px;margin:5px 0;font-size:16px;box-sizing:border-box}.r{display:flex;gap:6px}.r>*{flex:1}pre{white-space:pre-wrap;background:#f4f4f4;padding:12px}small{color:#666}fieldset{margin:10px 0}</style>
+<h2>قالب الوكلاء: أب + أبناء</h2>
+<fieldset><legend>مفاتيح API (محفوظة في المتصفح ده بس)</legend>
+<input id=k_openrouter type=password placeholder="OpenRouter key" oninput=saveKeys()>
+<input id=k_gemini type=password placeholder="Gemini key (AI Studio)" oninput=saveKeys()>
+<small>OpenRouter المجاني (:free): 20 طلب/دقيقة و50 طلب/يوم تقريبًا.</small></fieldset>
+<fieldset><legend>الأب (تعليمات أساسية لكل الأبناء)</legend>
+<textarea id=parent rows=3 oninput=saveParent()></textarea></fieldset>
+<fieldset><legend>الابن (وكيل)</legend>
+<select id=child onchange=pick()></select>
+<input id=name placeholder="اسم الابن (مثال: كاتب سكريبت)">
+<textarea id=role rows=3 placeholder="تعليمات خاصة بالابن (تضاف فوق تعليمات الأب)"></textarea>
+<div class=r><select id=prov onchange=loadModels()><option value=openrouter>OpenRouter</option><option value=gemini>Gemini</option></select><select id=model></select></div>
+<small>المزود والموديل بتوع الابن ده بس. غيّريهم وقت ما تحبي واضغطي احفظ.</small>
+<div class=r><button onclick=newChild()>ابن جديد</button><button onclick=saveChild()>احفظ</button><button onclick=delChild()>امسح</button></div></fieldset>
+<textarea id=msg rows=4 placeholder="طلبك دلوقتي"></textarea>
+<button onclick=ask()>شغّل الابن المختار</button><pre id=out></pre>
+<script>
+const $=i=>document.getElementById(i),L=localStorage;
+let parent=L.parent??'اكتب بالعامية المصرية. كن مختصرًا وصادقًا. لا تخترع أرقامًا أو نتائج.';
+let kids=JSON.parse(L.kids||'null')||[{name:'كاتب سكريبت وكابشن',role:'اكتب سكريبت فيديو بجمل قصيرة بدون علامات ترقيم، ثم كابشن وهاشتاجات.',prov:'openrouter',model:''},{name:'رد على عميل',role:'اكتب مسودة رد مهذب ومختصر على رسالة العميل.',prov:'gemini',model:'gemini-flash-latest'}];
+const cache={};
+function saveParent(){parent=$('parent').value;L.parent=parent}
+function saveKeys(){L.k_openrouter=$('k_openrouter').value;L.k_gemini=$('k_gemini').value}
+function store(){L.kids=JSON.stringify(kids)}
+function rp(sel){$('child').innerHTML=kids.map((p,i)=>`<option value=${i}></option>`).join('');[...$('child').options].forEach((o,i)=>o.textContent=kids[i].name+' ('+kids[i].prov+')');if(sel!=null)$('child').value=sel;pick()}
+function pick(){const p=kids[$('child').value];$('name').value=p?p.name:'';$('role').value=p?p.role:'';if(p){$('prov').value=p.prov;loadModels(p.model)}}
+function newChild(){$('child').selectedIndex=-1;$('name').value='';$('role').value=''}
+function saveChild(){const n=$('name').value.trim();if(!n)return;const c=$('child').value;const o={name:n,role:$('role').value,prov:$('prov').value,model:$('model').value};if(c!==''&&kids[c])kids[c]=o;else kids.push(o);store();rp(c!==''&&kids[c]?+c:kids.length-1)}
+function delChild(){const c=$('child').value;if(c==='')return;kids.splice(c,1);store();rp(0)}
+async function models(p){if(cache[p])return cache[p];let list=[];
+try{if(p=='openrouter'){const j=await (await fetch('https://openrouter.ai/api/v1/models')).json();list=j.data.filter(m=>m.id.endsWith(':free')).map(m=>m.id)}
+else list=['gemini-flash-latest','gemini-flash-lite-latest']}catch(e){}
+return cache[p]=list}
+async function loadModels(want){let list=[...await models($("prov").value)];if(want&&!list.includes(want))list=[want,...list];
+$('model').innerHTML=list.map(m=>`<option>${m}</option>`).join('')||'<option value="">تعذر التحميل</option>';if(want)$('model').value=want}
+async function ask(){const o=$('out');const k=kids[$('child').value];if(!k){o.textContent='اختاري ابن واحفظيه الأول';return}
+o.textContent='...';const p=k.prov,key=$('k_'+p).value,sys=parent+'\n\n'+k.role;
+try{let t;if(p=='openrouter'){const r=await fetch('https://openrouter.ai/api/v1/chat/completions',{method:'POST',headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},body:JSON.stringify({model:k.model,messages:[{role:'system',content:sys},{role:'user',content:$('msg').value}]})});const j=await r.json();t=j.choices?j.choices[0].message.content:JSON.stringify(j,null,1)}
+else{const r=await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${k.model}:generateContent`,{method:'POST',headers:{'Content-Type':'application/json','x-goog-api-key':key},body:JSON.stringify({systemInstruction:{parts:[{text:sys}]},contents:[{parts:[{text:$('msg').value}]}]})});const j=await r.json();t=j.candidates?j.candidates[0].content.parts[0].text:JSON.stringify(j,null,1)}
+o.textContent=t}catch(e){o.textContent=e}}
+$('parent').value=parent;$('k_openrouter').value=L.k_openrouter||'';$('k_gemini').value=L.k_gemini||'';rp(0);
+</script></html>
